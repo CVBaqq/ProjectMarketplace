@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/projects")
@@ -31,7 +30,7 @@ public class ProjectController {
   @PostMapping
   public ProjectDTO create(@RequestBody ProjectRequest project) {
     log.info("Received request to create project.");
-    return ProjectDTO.convertFromEntity(service.add(project));
+    return service.add(project);
   }
 
   @GetMapping
@@ -43,6 +42,6 @@ public class ProjectController {
   @GetMapping("/all")
   public List<ProjectDTO> getAll() {
     log.info("Received request to get all projects.");
-    return service.getAll().stream().map(project -> ProjectDTO.convertFromEntity(project)).collect(Collectors.toList());
+    return service.getAll();
   }
 }

@@ -1,5 +1,6 @@
 package com.intuit.cg.marketplace.model.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.intuit.cg.marketplace.model.entity.Project;
 import lombok.Data;
 
@@ -22,6 +23,7 @@ public class ProjectDTO {
 
   private BigDecimal maxBudget;
 
+  @JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")
   private Date bidStop;
 
   private Long currentWinnerId;

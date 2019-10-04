@@ -1,5 +1,6 @@
 package com.intuit.cg.marketplace.model.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.intuit.cg.marketplace.model.entity.AutoBid;
 import lombok.Data;
 
@@ -24,6 +25,7 @@ public class AutoBidDTO {
 
   private List<BidDTO> bids;
 
+  @JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")
   private Date created;
 
   public static AutoBidDTO convertFromEntity(AutoBid autobid) {

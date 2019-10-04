@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Component
 public class ProjectService {
@@ -28,18 +29,27 @@ public class ProjectService {
     this.sellerRepository = sellerRepository;
   }
 
-  public Project add(ProjectRequest project) {
+  public ProjectDTO add(ProjectRequest project) {
     Optional<Seller> optional = sellerRepository.findById(project.getSellerId());
     Seller seller = optional.orElseThrow(() -> new ResourceNotFoundException("Tried to persist new project but seller with ID " +
                           project.getSellerId() + " does not exists"));
     Project projectEntity = convertFromRequest(project);
     projectEntity.setSeller(seller);
-    return projectRepository.save(projectEntity);
+    return ProjectDTO.convertFromEntity(projectRepository.save(projectEntity));
   }
 
   public ProjectDTO get(long id) {
     Project project = projectRepository.findById(id).orElseThrow(
             () -> new ResourceNotFoundException("Project with id " + id + " was not found"));
+    return convertToDTO(project);
+  }
+
+  public List<ProjectDTO> getAll() {
+    List<Project> projects = (List<Project>) projectRepository.findAll();
+    return projects.stream().map(this::convertToDTO).collect(Collectors.toList());
+  }
+
+  private ProjectDTO convertToDTO(Project project) {
     ProjectDTO projectDTO = ProjectDTO.convertFromEntity(project);
     Bid winningBid = project.getBids().stream().min(Comparator.comparing(bid -> bid.getAmount())).orElse(null);
     if (winningBid != null) {
@@ -47,10 +57,6 @@ public class ProjectService {
       projectDTO.setWinningAmount(winningBid.getAmount());
     }
     return projectDTO;
-  }
-
-  public List<Project> getAll() {
-    return (List<Project>) projectRepository.findAll();
   }
 
   private Project convertFromRequest(ProjectRequest project) {

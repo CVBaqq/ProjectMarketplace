@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/buyers")
 @Api(value = "/buyers", description = "API to handle buyer related requests.")
@@ -21,7 +23,12 @@ public class BuyerController {
 
   @GetMapping
   public BuyerDTO get(long id) {
-    return BuyerDTO.convertFromEntity(service.get(id));
+    return service.get(id);
+  }
+
+  @GetMapping("/all")
+  public List<BuyerDTO> getAll() {
+    return service.getAll();
   }
 
 }

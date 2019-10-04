@@ -1,16 +1,18 @@
 package com.intuit.cg.marketplace.service;
 
 import com.intuit.cg.marketplace.exception.UnsatisfactoryBidException;
+import com.intuit.cg.marketplace.model.dto.BidDTO;
+import com.intuit.cg.marketplace.model.entity.AutoBid;
 import com.intuit.cg.marketplace.model.entity.Bid;
 import com.intuit.cg.marketplace.model.entity.Buyer;
-import com.intuit.cg.marketplace.model.entity.AutoBid;
 import com.intuit.cg.marketplace.model.entity.Project;
-import com.intuit.cg.marketplace.model.request.BidRequest;
 import com.intuit.cg.marketplace.model.request.AutoBidRequest;
+import com.intuit.cg.marketplace.model.request.BidRequest;
 import com.intuit.cg.marketplace.repository.AutoBidRepository;
 import com.intuit.cg.marketplace.repository.BidRepository;
 import com.intuit.cg.marketplace.repository.BuyerRepository;
 import com.intuit.cg.marketplace.repository.ProjectRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.rest.webmvc.ResourceNotFoundException;
 import org.springframework.stereotype.Component;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Component
+@Slf4j
 public class BidService {
 
   private final BidRepository bidRepository;
@@ -97,7 +100,7 @@ public class BidService {
    * 1. Auto bid has to be lower than the current lowest bid or at or lower than project budget.
    * 2. if no pre-existing bid, autobid will start at project budget.
    * 3. Auto bid cannot be from the project seller.
-   * 4.
+   *
    * Default behavior: To keep track of history of the auto bid, auto bids against other auto bids will
    * perform a round-robin to create bids against each other.
    *
@@ -110,13 +113,21 @@ public class BidService {
 
     validateRequest(project, request.getBuyerId(), request.getTargetAmount());
 
+    if (request.getTargetAmount().compareTo(BigDecimal.valueOf(0)) < 0) {
+      throw new UnsatisfactoryBidException("Auto bid cannot have a target bid of less than 0");
+    }
+    if (request.getTargetAmount().compareTo(project.getMaxBudget()) > 0) {
+      throw new UnsatisfactoryBidException("Auto bid cannot have a target bid of greater than project budget");
+    }
+
     Bid lowestBid = project.getBids().stream().min(Comparator.comparing(Bid::getAmount)).orElse(null);
     if (lowestBid != null) {
       if (lowestBid.getBuyer().getId() == request.getBuyerId()) {
-        throw new UnsatisfactoryBidException("You are already the lowest bidder with bid at " + lowestBid.getAmount());
+        throw new UnsatisfactoryBidException("You are already the lowest bidder with bid at " + lowestBid.getAmount()
+                + ". Not persisting auto bid");
       }
       if (lowestBid.getAmount().compareTo(request.getTargetAmount()) <= 0) {
-        throw new UnsatisfactoryBidException("Bid submitted is not lower or equal to the current lowest bid: " +
+        throw new UnsatisfactoryBidException("Auto bid target submitted is not lower or equal to the current lowest bid: " +
                 lowestBid.getAmount());
       }
 
@@ -129,13 +140,13 @@ public class BidService {
         addNewBid(currentAutobid, getNextLowestBid(currentAutobid, lowestBid));
         autoBidRepository.save(currentAutobid);
       } else {
-        // Bidding war happens here
+        // Last bid was made by an auto bid, so go into a bidding war with the last auto bidder.
         handleAutoBid(currentAutobid, lastAutobid, lowestBid);
         autoBidRepository.saveAll(Stream.of(currentAutobid, lastAutobid).collect(Collectors.toList()));
       }
       return currentAutobid;
     } else {
-      // There was no previous bids so persist a new one by auto bid.
+      // There was no previous bid so persist a new one by auto bid.
       AutoBid autoBid = new AutoBid(project, buyer, request.getTargetAmount(), request.getIncrement());
       addNewBid(autoBid, project.getMaxBudget());
       return autoBidRepository.save(autoBid);
@@ -145,6 +156,11 @@ public class BidService {
   public Bid get(long id) {
     Optional<Bid> optional = bidRepository.findById(id);
     return optional.orElseThrow(() -> new ResourceNotFoundException("Bid with ID " + id + " does not exists."));
+  }
+
+  public AutoBid getAutobid(long id) {
+    Optional<AutoBid> optional = autoBidRepository.findById(id);
+    return optional.orElseThrow(() -> new ResourceNotFoundException("Auto bid with ID " + id + " does not exists"));
   }
 
   public List<Bid> getAll() {
@@ -157,9 +173,9 @@ public class BidService {
    * 1. Bidder cannot be the seller of the project.
    * 2. Project bidding end time has not been elapsed.
    * 3. The bid amount does not exceed the project budget.
-   * @param project
-   * @param buyerId
-   * @param bidAmount
+   * @param project The project to perform validation on.
+   * @param buyerId The buyer id to perform validation on.
+   * @param bidAmount The bid amount to perform validation on.
    * @throws UnsatisfactoryBidException
    */
   private void validateRequest(Project project, Long buyerId, BigDecimal bidAmount) throws UnsatisfactoryBidException {
@@ -204,8 +220,15 @@ public class BidService {
     AutoBid current = currentAutobid;
     AutoBid next = previousAutobid;
     Bid currentLowestBid = lowestBid;
-    while (currentLowestBid.getBuyer().getId() != current.getBuyer().getId()) {
+    while (!currentLowestBid.getBuyer().getId().equals(current.getBuyer().getId())) {
+      if (currentLowestBid.getAmount().compareTo(BigDecimal.valueOf(0)) == 0 ||
+              currentLowestBid.getAmount().compareTo(current.getTargetAmount()) <= 0) {
+        // 1. First person to reach bid of 0 will win the project.
+        // 2. The current lowest bid is equal or less than the target bid of current auto bidder.
+        break;
+      }
       Bid newLowBid = addNewBid(current, getNextLowestBid(current, currentLowestBid));
+      log.info("Created bid: " + BidDTO.convertFromEntity(newLowBid).toString());
 
       AutoBid temp = current;
       current = next;
@@ -214,11 +237,23 @@ public class BidService {
     }
   }
 
+  /**
+   * This method contains logic for auto bid to determine the next amount to bid.
+   * 1. Next bid amount cannot be less than 0. If bid is 0, the bidder is doing the job for free.
+   * 2. Next bid amount is not lower than auto bid's target amount.
+   * @param autoBid The auto bid to base the next bid on.
+   * @param lowestBid The current lowest bid to base the next bid on.
+   * @return The next bid made.
+   */
   private BigDecimal getNextLowestBid(AutoBid autoBid, Bid lowestBid) {
     BigDecimal nextAmount = lowestBid.getAmount().subtract(autoBid.getIncrement());
     if (nextAmount.compareTo(BigDecimal.valueOf(0)) <= 0) {
       return BigDecimal.valueOf(0);
     }
+    else if (nextAmount.compareTo(autoBid.getTargetAmount()) <= 0) {
+      return autoBid.getTargetAmount();
+    }
+    // This is a normal increment(decrement) bid
     return nextAmount;
   }
 

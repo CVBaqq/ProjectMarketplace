@@ -49,8 +49,14 @@ public class BidController {
     return service.getAll().stream().map(bid -> BidDTO.convertFromEntity(bid)).collect(Collectors.toList());
   }
 
+  @GetMapping("/autobid")
+  public AutoBidDTO getAutobid(@RequestParam long id) {
+    return AutoBidDTO.convertFromEntity(service.getAutobid(id));
+  }
+
   @PostMapping("/autobid")
   public AutoBidDTO autoBid(@RequestBody AutoBidRequest request) throws UnsatisfactoryBidException {
+    log.info("Received request to place an auto bid");
     return AutoBidDTO.convertFromEntity(service.add(request));
   }
 }

@@ -17,7 +17,7 @@ public class SellerDTO {
     SellerDTO sellerDTO = new SellerDTO();
     sellerDTO.setId(seller.getId());
     sellerDTO.setProjects(seller.getProjects().stream().map(
-            project -> ProjectDTO.convertFromEntity(project)).collect(Collectors.toList()));
+            ProjectDTO::convertFromEntity).collect(Collectors.toList()));
     return sellerDTO;
   }
 }
